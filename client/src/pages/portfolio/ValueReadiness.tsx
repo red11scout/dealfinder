@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ScatterChart,
@@ -195,6 +195,8 @@ export default function ValueReadiness() {
     setFilter,
     getFilteredCompanies,
   } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   // Bridge single-value FilterPills to array-based filter state
   const toggleCohort = (value: string) => {

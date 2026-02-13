@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   PieChart,
@@ -66,6 +66,8 @@ export default function ExecutiveSummary() {
     getPlatformCount,
     getReplicationOpportunities,
   } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
   const navigate = useNavigate();
 
   // Derived data

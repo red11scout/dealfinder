@@ -2,6 +2,7 @@ import { Outlet } from "react-router-dom";
 import { useAppStore } from "../../stores/app";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
+import { ChatPanel, ChatBubble } from "../chat/ChatPanel";
 
 export function AppShell() {
   const { activeSection, sidebarOpen } = useAppStore();
@@ -22,6 +23,9 @@ export function AppShell() {
           <Outlet />
         </div>
       </main>
+
+      <ChatPanel />
+      <ChatBubble />
     </div>
   );
 }

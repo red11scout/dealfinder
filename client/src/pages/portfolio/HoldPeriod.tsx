@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { HiChevronDown, HiChevronUp } from "react-icons/hi";
 import { usePortfolioStore } from "../../stores/portfolio";
 import { Card, Badge, Tooltip } from "../../components/shared";
@@ -136,6 +136,8 @@ type SortDirection = "asc" | "desc";
 
 export default function HoldPeriod() {
   const { companies, stats, getCompaniesByTrack } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   // Local state
   const [expandedTracks, setExpandedTracks] = useState<Record<Track, boolean>>({

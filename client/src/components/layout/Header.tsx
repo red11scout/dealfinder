@@ -8,6 +8,7 @@ const navItems: { label: string; section: ActiveSection; path: string }[] = [
   { label: "Portfolio", section: "portfolio", path: "/portfolio/executive-summary" },
   { label: "VAR Directory", section: "vars", path: "/vars" },
   { label: "M&A Engine", section: "ma-engine", path: "/ma-engine" },
+  { label: "Insights", section: "insights", path: "/insights" },
 ];
 
 export function Header() {

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   PieChart,
   Pie,
@@ -103,6 +103,8 @@ type BarViewMode = "count" | "ebitda";
 
 export default function ValueDrivers() {
   const { companies, getCompaniesByValueTheme } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   // Local state
   const [activeTab, setActiveTab] = useState<ValueTheme>("Revenue Growth");

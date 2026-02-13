@@ -1,236 +1,69 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response } from 'express'
+import type { UnifiedVar, AcquisitionCriteria, ScoredVar } from '@shared/types'
+import { db } from '../db/index.js'
+import { vars as varsTable } from '../db/schema.js'
+import {
+  DEFAULT_CRITERIA,
+  computeAllScores,
+  generateScoreExplanation,
+} from '../lib/scoring.js'
+
+const router = Router()
 
 // ============================================================================
-// M&A Acquisition Engine — Server Routes
+// Criteria Weights (mutable per-session, in-memory)
 // ============================================================================
 
-const router = Router();
+let currentCriteria: AcquisitionCriteria = { ...DEFAULT_CRITERIA }
 
 // ============================================================================
-// VarCompany Interface + Data (mirrors client store)
+// Data Access — DB with fallback
 // ============================================================================
 
-interface VarCompany {
-  id: number;
-  name: string;
-  hq: string;
-  state: string;
-  revenue: number;
-  employees: number;
-  ownership: "Private" | "PE-Backed" | "Public" | "ESOP";
-  specialties: string[];
-  primaryVendors: string[];
-  customerSegment: "SMB" | "Mid-Market" | "Enterprise" | "Mixed";
-  growthRate: number;
-  ebitdaMargin: number;
-  founded: number;
-}
-
-interface AcquisitionCriteria {
-  revenueFitWeight: number;
-  geographicFitWeight: number;
-  specialtyFitWeight: number;
-  cultureFitWeight: number;
-  customerOverlapWeight: number;
-  vendorSynergyWeight: number;
-  growthTrajectoryWeight: number;
-  marginProfileWeight: number;
-}
-
-interface VarScores {
-  revenueFit: number;
-  geographicFit: number;
-  specialtyFit: number;
-  cultureFit: number;
-  customerOverlap: number;
-  vendorSynergy: number;
-  growthTrajectory: number;
-  marginProfile: number;
-}
-
-interface ScoredVar {
-  var: VarCompany;
-  scores: VarScores;
-  compositeScore: number;
-  rank: number;
-  reasoning: string;
-}
-
-// ============================================================================
-// Scoring Constants
-// ============================================================================
-
-const PREFERRED_STATES = ["NC", "VA", "GA", "FL", "TX", "SC", "MD", "AL", "TN", "PA"];
-const ADJACENT_STATES = ["NY", "NJ", "MA", "CT", "DE", "WV", "KY", "MS", "LA", "OH", "IN", "IL"];
-const PREFERRED_SPECIALTIES = ["Cloud", "Cybersecurity", "Managed Services"];
-const PREFERRED_VENDORS = ["Microsoft", "Cisco", "Dell"];
-
-// ============================================================================
-// Criteria Weights (mutable in-memory for this session)
-// ============================================================================
-
-let currentCriteria: AcquisitionCriteria = {
-  revenueFitWeight: 0.15,
-  geographicFitWeight: 0.10,
-  specialtyFitWeight: 0.20,
-  cultureFitWeight: 0.10,
-  customerOverlapWeight: 0.10,
-  vendorSynergyWeight: 0.15,
-  growthTrajectoryWeight: 0.10,
-  marginProfileWeight: 0.10,
-};
-
-// ============================================================================
-// VAR Database (same as client)
-// ============================================================================
-
-const vars: VarCompany[] = [
-  { id: 1, name: "Presidio", hq: "New York, NY", state: "NY", revenue: 3200, employees: 3200, ownership: "PE-Backed", specialties: ["Cloud", "Cybersecurity", "Managed Services", "Networking"], primaryVendors: ["Cisco", "Microsoft", "Palo Alto", "Dell"], customerSegment: "Enterprise", growthRate: 12, ebitdaMargin: 11, founded: 2015 },
-  { id: 2, name: "Optiv Security", hq: "Denver, CO", state: "CO", revenue: 2400, employees: 2200, ownership: "PE-Backed", specialties: ["Cybersecurity", "Identity", "Cloud Security", "Managed Detection"], primaryVendors: ["CrowdStrike", "Microsoft", "Palo Alto", "Splunk"], customerSegment: "Enterprise", growthRate: 15, ebitdaMargin: 13, founded: 2015 },
-  { id: 3, name: "Trace3", hq: "Irvine, CA", state: "CA", revenue: 1800, employees: 1100, ownership: "PE-Backed", specialties: ["Cloud", "Data Center", "AI/ML", "Cybersecurity"], primaryVendors: ["Dell", "Cisco", "Microsoft", "VMware"], customerSegment: "Enterprise", growthRate: 18, ebitdaMargin: 14, founded: 2002 },
-  { id: 4, name: "Flexential", hq: "Charlotte, NC", state: "NC", revenue: 480, employees: 800, ownership: "PE-Backed", specialties: ["Cloud", "Colocation", "Managed Services", "Data Protection"], primaryVendors: ["Dell", "VMware", "Microsoft", "Veeam"], customerSegment: "Mid-Market", growthRate: 14, ebitdaMargin: 22, founded: 2017 },
-  { id: 5, name: "Sirius Computer Solutions", hq: "San Antonio, TX", state: "TX", revenue: 2200, employees: 2800, ownership: "PE-Backed", specialties: ["Cloud", "Cybersecurity", "Managed Services", "Data Center"], primaryVendors: ["Cisco", "Dell", "Microsoft", "IBM"], customerSegment: "Enterprise", growthRate: 8, ebitdaMargin: 9, founded: 1980 },
-  { id: 6, name: "Red River Technology", hq: "Claremont, NH", state: "NH", revenue: 350, employees: 600, ownership: "Private", specialties: ["Cloud", "Cybersecurity", "Networking", "Managed Services"], primaryVendors: ["Cisco", "Dell", "Microsoft", "AWS"], customerSegment: "Mid-Market", growthRate: 16, ebitdaMargin: 12, founded: 1995 },
-  { id: 7, name: "Evolve IP", hq: "Wayne, PA", state: "PA", revenue: 200, employees: 450, ownership: "PE-Backed", specialties: ["Cloud", "Unified Communications", "Managed Services", "Disaster Recovery"], primaryVendors: ["Microsoft", "Cisco", "VMware", "Citrix"], customerSegment: "Mid-Market", growthRate: 11, ebitdaMargin: 18, founded: 2007 },
-  { id: 8, name: "Converge Technology Solutions", hq: "Toronto, ON", state: "ON", revenue: 2800, employees: 3600, ownership: "Public", specialties: ["Cloud", "Cybersecurity", "Managed Services", "Analytics"], primaryVendors: ["Microsoft", "Cisco", "Dell", "AWS"], customerSegment: "Enterprise", growthRate: 22, ebitdaMargin: 8, founded: 2016 },
-  { id: 9, name: "Lumen Technologies Solutions", hq: "Monroe, LA", state: "LA", revenue: 1500, employees: 2000, ownership: "Public", specialties: ["Networking", "Cloud", "Edge Computing", "Security"], primaryVendors: ["Cisco", "Fortinet", "Microsoft", "AWS"], customerSegment: "Enterprise", growthRate: 3, ebitdaMargin: 7, founded: 1930 },
-  { id: 10, name: "Pax8", hq: "Denver, CO", state: "CO", revenue: 1600, employees: 1800, ownership: "PE-Backed", specialties: ["Cloud Marketplace", "Managed Services", "SaaS Distribution"], primaryVendors: ["Microsoft", "AWS", "Adobe", "Acronis"], customerSegment: "SMB", growthRate: 35, ebitdaMargin: 6, founded: 2012 },
-  { id: 11, name: "Nitel", hq: "Chicago, IL", state: "IL", revenue: 180, employees: 280, ownership: "PE-Backed", specialties: ["Cloud", "Managed SD-WAN", "UCaaS", "Connectivity"], primaryVendors: ["Cisco", "Microsoft", "VMware", "Fortinet"], customerSegment: "Mid-Market", growthRate: 19, ebitdaMargin: 15, founded: 2014 },
-  { id: 12, name: "MicroAge", hq: "Tempe, AZ", state: "AZ", revenue: 320, employees: 350, ownership: "Private", specialties: ["Cloud", "Managed Services", "Procurement", "Lifecycle Services"], primaryVendors: ["Dell", "HP", "Microsoft", "Lenovo"], customerSegment: "Mid-Market", growthRate: 5, ebitdaMargin: 8, founded: 1976 },
-  { id: 13, name: "TBC (Technology Business Consulting)", hq: "Raleigh, NC", state: "NC", revenue: 150, employees: 200, ownership: "Private", specialties: ["Cloud", "Cybersecurity", "Managed Services", "Networking"], primaryVendors: ["Cisco", "Microsoft", "Dell", "Fortinet"], customerSegment: "Mid-Market", growthRate: 13, ebitdaMargin: 14, founded: 2003 },
-  { id: 14, name: "OneNeck IT Solutions", hq: "Scottsdale, AZ", state: "AZ", revenue: 280, employees: 500, ownership: "PE-Backed", specialties: ["Cloud", "Managed Services", "Data Center", "ERP Hosting"], primaryVendors: ["Dell", "VMware", "Microsoft", "Oracle"], customerSegment: "Mid-Market", growthRate: 7, ebitdaMargin: 16, founded: 2003 },
-  { id: 15, name: "Logicalis US", hq: "New York, NY", state: "NY", revenue: 850, employees: 900, ownership: "Private", specialties: ["Cloud", "Managed Services", "Networking", "Collaboration"], primaryVendors: ["Cisco", "Microsoft", "AWS", "Dell"], customerSegment: "Enterprise", growthRate: 6, ebitdaMargin: 9, founded: 1997 },
-  { id: 16, name: "Coretelligent", hq: "Westwood, MA", state: "MA", revenue: 85, employees: 230, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Compliance"], primaryVendors: ["Microsoft", "Dell", "Cisco", "SentinelOne"], customerSegment: "Mid-Market", growthRate: 25, ebitdaMargin: 17, founded: 2006 },
-  { id: 17, name: "GreenPages Technology Solutions", hq: "Kittery, ME", state: "ME", revenue: 250, employees: 300, ownership: "Private", specialties: ["Cloud", "DevOps", "Managed Services", "Data Center"], primaryVendors: ["Dell", "VMware", "Microsoft", "AWS"], customerSegment: "Mid-Market", growthRate: 10, ebitdaMargin: 11, founded: 1992 },
-  { id: 18, name: "Marco Technologies", hq: "St. Cloud, MN", state: "MN", revenue: 550, employees: 1500, ownership: "ESOP", specialties: ["Managed Services", "Cloud", "Cybersecurity", "Print Management"], primaryVendors: ["Microsoft", "Dell", "Cisco", "HP"], customerSegment: "SMB", growthRate: 9, ebitdaMargin: 12, founded: 1973 },
-  { id: 19, name: "Agio", hq: "New York, NY", state: "NY", revenue: 120, employees: 350, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Compliance"], primaryVendors: ["Microsoft", "CrowdStrike", "Palo Alto", "AWS"], customerSegment: "Mid-Market", growthRate: 20, ebitdaMargin: 19, founded: 2010 },
-  { id: 20, name: "Dataprise", hq: "Rockville, MD", state: "MD", revenue: 160, employees: 500, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Help Desk"], primaryVendors: ["Microsoft", "Dell", "Cisco", "SentinelOne"], customerSegment: "Mid-Market", growthRate: 18, ebitdaMargin: 16, founded: 1995 },
-  { id: 21, name: "Evolving Solutions", hq: "Hamel, MN", state: "MN", revenue: 140, employees: 160, ownership: "Private", specialties: ["Cloud", "Data Center", "Managed Services", "Storage"], primaryVendors: ["Dell", "VMware", "Microsoft", "Pure Storage"], customerSegment: "Mid-Market", growthRate: 7, ebitdaMargin: 10, founded: 1995 },
-  { id: 22, name: "Ahead", hq: "Chicago, IL", state: "IL", revenue: 600, employees: 500, ownership: "PE-Backed", specialties: ["Cloud", "Data Analytics", "Managed Services", "Security"], primaryVendors: ["Microsoft", "Dell", "AWS", "Cisco"], customerSegment: "Enterprise", growthRate: 24, ebitdaMargin: 14, founded: 2007 },
-  { id: 23, name: "InterVision Systems", hq: "Santa Clara, CA", state: "CA", revenue: 500, employees: 700, ownership: "PE-Backed", specialties: ["Cloud", "Managed Services", "AI", "Cybersecurity"], primaryVendors: ["Microsoft", "AWS", "Cisco", "Dell"], customerSegment: "Enterprise", growthRate: 16, ebitdaMargin: 13, founded: 1993 },
-  { id: 24, name: "TierPoint", hq: "St. Louis, MO", state: "MO", revenue: 700, employees: 1000, ownership: "PE-Backed", specialties: ["Cloud", "Colocation", "Managed Services", "Disaster Recovery"], primaryVendors: ["Dell", "VMware", "Microsoft", "Zerto"], customerSegment: "Mid-Market", growthRate: 8, ebitdaMargin: 20, founded: 2010 },
-  { id: 25, name: "NWN Carousel", hq: "Waltham, MA", state: "MA", revenue: 800, employees: 1200, ownership: "PE-Backed", specialties: ["Cloud", "Collaboration", "Managed Services", "Networking"], primaryVendors: ["Cisco", "Microsoft", "Dell", "Poly"], customerSegment: "Enterprise", growthRate: 11, ebitdaMargin: 10, founded: 1988 },
-  { id: 26, name: "Rackspace Technology", hq: "San Antonio, TX", state: "TX", revenue: 3000, employees: 6000, ownership: "PE-Backed", specialties: ["Cloud", "Managed Services", "Multi-Cloud", "Data"], primaryVendors: ["AWS", "Microsoft", "Google", "VMware"], customerSegment: "Enterprise", growthRate: 2, ebitdaMargin: 8, founded: 1998 },
-  { id: 27, name: "Sentinel Technologies", hq: "Downers Grove, IL", state: "IL", revenue: 190, employees: 250, ownership: "Private", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Networking"], primaryVendors: ["Cisco", "Dell", "Microsoft", "Fortinet"], customerSegment: "Mid-Market", growthRate: 12, ebitdaMargin: 13, founded: 1982 },
-  { id: 28, name: "Ntiva", hq: "McLean, VA", state: "VA", revenue: 110, employees: 400, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Help Desk"], primaryVendors: ["Microsoft", "Dell", "Cisco", "Datto"], customerSegment: "SMB", growthRate: 22, ebitdaMargin: 15, founded: 2004 },
-  { id: 29, name: "Burwood Group", hq: "Chicago, IL", state: "IL", revenue: 95, employees: 200, ownership: "Private", specialties: ["Cloud", "Cybersecurity", "Networking", "Data Center"], primaryVendors: ["Cisco", "Microsoft", "Dell", "AWS"], customerSegment: "Mid-Market", growthRate: 14, ebitdaMargin: 16, founded: 1997 },
-  { id: 30, name: "VC3", hq: "Columbia, SC", state: "SC", revenue: 75, employees: 300, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Government IT"], primaryVendors: ["Microsoft", "Dell", "Cisco", "Fortinet"], customerSegment: "SMB", growthRate: 20, ebitdaMargin: 18, founded: 1994 },
-  { id: 31, name: "NetStandard", hq: "Kansas City, MO", state: "MO", revenue: 65, employees: 180, ownership: "PE-Backed", specialties: ["Managed Services", "Cloud", "Cybersecurity", "Compliance"], primaryVendors: ["Microsoft", "Dell", "Cisco", "SentinelOne"], customerSegment: "Mid-Market", growthRate: 17, ebitdaMargin: 14, founded: 2001 },
-  { id: 32, name: "IT Solutions", hq: "Fort Lauderdale, FL", state: "FL", revenue: 130, employees: 220, ownership: "Private", specialties: ["Managed Services", "Cloud", "Cybersecurity", "VoIP"], primaryVendors: ["Microsoft", "Dell", "Cisco", "Fortinet"], customerSegment: "Mid-Market", growthRate: 15, ebitdaMargin: 15, founded: 1998 },
-  { id: 33, name: "Thrive", hq: "Foxborough, MA", state: "MA", revenue: 300, employees: 700, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Compliance"], primaryVendors: ["Microsoft", "CrowdStrike", "Palo Alto", "Dell"], customerSegment: "Mid-Market", growthRate: 28, ebitdaMargin: 16, founded: 2001 },
-  { id: 34, name: "Resultant", hq: "Indianapolis, IN", state: "IN", revenue: 180, employees: 400, ownership: "Private", specialties: ["Cloud", "Data Analytics", "Cybersecurity", "Consulting"], primaryVendors: ["Microsoft", "AWS", "Dell", "Tableau"], customerSegment: "Mid-Market", growthRate: 20, ebitdaMargin: 15, founded: 2008 },
-  { id: 35, name: "Cleareon", hq: "Atlanta, GA", state: "GA", revenue: 90, employees: 150, ownership: "PE-Backed", specialties: ["Cloud", "Managed Services", "Networking", "SD-WAN"], primaryVendors: ["Cisco", "Microsoft", "Dell", "Fortinet"], customerSegment: "Mid-Market", growthRate: 19, ebitdaMargin: 17, founded: 2010 },
-  { id: 36, name: "Xantrion", hq: "Oakland, CA", state: "CA", revenue: 40, employees: 85, ownership: "Private", specialties: ["Managed Services", "Cybersecurity", "Cloud", "Help Desk"], primaryVendors: ["Microsoft", "Dell", "SentinelOne", "Datto"], customerSegment: "SMB", growthRate: 15, ebitdaMargin: 20, founded: 1988 },
-  { id: 37, name: "Sourcepass", hq: "New York, NY", state: "NY", revenue: 55, employees: 250, ownership: "PE-Backed", specialties: ["Managed Services", "Cybersecurity", "Cloud", "VoIP"], primaryVendors: ["Microsoft", "Dell", "Cisco", "Fortinet"], customerSegment: "SMB", growthRate: 40, ebitdaMargin: 12, founded: 2019 },
-  { id: 38, name: "CentraComm", hq: "Charlotte, NC", state: "NC", revenue: 60, employees: 100, ownership: "Private", specialties: ["Cloud", "Managed Services", "Cybersecurity", "Networking"], primaryVendors: ["Cisco", "Dell", "Microsoft", "Fortinet"], customerSegment: "Mid-Market", growthRate: 16, ebitdaMargin: 14, founded: 2005 },
-  { id: 39, name: "TekLinks", hq: "Birmingham, AL", state: "AL", revenue: 95, employees: 200, ownership: "PE-Backed", specialties: ["Cloud", "Managed Services", "Cybersecurity", "Data Center"], primaryVendors: ["Dell", "Microsoft", "Cisco", "VMware"], customerSegment: "Mid-Market", growthRate: 11, ebitdaMargin: 13, founded: 1997 },
-  { id: 40, name: "Cerdant", hq: "Richmond, VA", state: "VA", revenue: 50, employees: 80, ownership: "Private", specialties: ["Cybersecurity", "Cloud", "Managed Services", "Compliance"], primaryVendors: ["Microsoft", "CrowdStrike", "Cisco", "Fortinet"], customerSegment: "Mid-Market", growthRate: 22, ebitdaMargin: 18, founded: 2009 },
-];
-
-// ============================================================================
-// Scoring Functions
-// ============================================================================
-
-function scoreRevenueFit(revenue: number): number {
-  if (revenue >= 100 && revenue <= 300) return 10;
-  if (revenue >= 50 && revenue < 100) return 7;
-  if (revenue > 300 && revenue <= 500) return 7;
-  if (revenue > 500 && revenue <= 800) return 5;
-  if (revenue > 800 && revenue <= 1000) return 4;
-  if (revenue >= 30 && revenue < 50) return 5;
-  return 3;
-}
-
-function scoreGeographicFit(state: string): number {
-  if (PREFERRED_STATES.includes(state)) return 10;
-  if (ADJACENT_STATES.includes(state)) return 7;
-  return 4;
-}
-
-function scoreSpecialtyFit(specialties: string[]): number {
-  const overlap = specialties.filter((s) => PREFERRED_SPECIALTIES.includes(s)).length;
-  if (overlap >= 3) return 10;
-  if (overlap === 2) return 8;
-  if (overlap === 1) return 5;
-  return 2;
-}
-
-function scoreCultureFit(ownership: VarCompany["ownership"]): number {
-  if (ownership === "PE-Backed") return 9;
-  if (ownership === "Private") return 8;
-  if (ownership === "ESOP") return 6;
-  return 4;
-}
-
-function scoreCustomerOverlap(segment: VarCompany["customerSegment"]): number {
-  if (segment === "Mid-Market") return 10;
-  if (segment === "Mixed") return 8;
-  if (segment === "Enterprise") return 6;
-  return 5;
-}
-
-function scoreVendorSynergy(vendors: string[]): number {
-  const overlap = vendors.filter((v) => PREFERRED_VENDORS.includes(v)).length;
-  if (overlap >= 3) return 10;
-  if (overlap === 2) return 8;
-  if (overlap === 1) return 5;
-  return 2;
-}
-
-function scoreGrowthTrajectory(growthRate: number): number {
-  if (growthRate >= 20) return 10;
-  if (growthRate >= 15) return 9;
-  if (growthRate >= 10) return 7;
-  if (growthRate >= 5) return 5;
-  return 3;
-}
-
-function scoreMarginProfile(ebitdaMargin: number): number {
-  if (ebitdaMargin >= 18) return 10;
-  if (ebitdaMargin >= 15) return 9;
-  if (ebitdaMargin >= 12) return 7;
-  if (ebitdaMargin >= 10) return 6;
-  if (ebitdaMargin >= 8) return 4;
-  return 3;
-}
-
-function scoreVar(v: VarCompany): VarScores {
+function mapDbRowToUnifiedVar(row: any): UnifiedVar {
   return {
-    revenueFit: scoreRevenueFit(v.revenue),
-    geographicFit: scoreGeographicFit(v.state),
-    specialtyFit: scoreSpecialtyFit(v.specialties),
-    cultureFit: scoreCultureFit(v.ownership),
-    customerOverlap: scoreCustomerOverlap(v.customerSegment),
-    vendorSynergy: scoreVendorSynergy(v.primaryVendors),
-    growthTrajectory: scoreGrowthTrajectory(v.growthRate),
-    marginProfile: scoreMarginProfile(v.ebitdaMargin),
-  };
+    id: row.id,
+    name: row.name,
+    website: row.website,
+    hqCity: row.hqCity ?? '',
+    hqState: row.hqState ?? '',
+    annualRevenue: row.annualRevenue ?? 0,
+    profit: row.profit,
+    employeeCount: row.employeeCount ?? 0,
+    ownershipType: row.ownershipType ?? 'Private',
+    strategicSpecialty: row.strategicSpecialty ?? '',
+    strategicFocus: row.strategicFocus,
+    topVendors: row.topVendors ?? [],
+    topCustomers: row.topCustomers ?? [],
+    yearFounded: row.yearFounded ?? 2000,
+    description: row.description ?? '',
+    confidenceScore: row.confidenceScore ?? 0.5,
+    dataSources: row.dataSources,
+    growthRate: row.growthRate,
+    ebitdaMargin: row.ebitdaMargin,
+    customerSegment: row.customerSegment,
+    specialties: row.specialties,
+    branchLocations: row.branchLocations,
+    certifications: row.certifications,
+    servicesMix: row.servicesMix,
+    glassdoorRating: row.glassdoorRating,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    discoveredBy: row.discoveredBy ?? 'seed',
+    lastResearchedAt: row.lastResearchedAt?.toISOString() ?? null,
+  }
 }
 
-function computeComposite(scores: VarScores, criteria: AcquisitionCriteria): number {
-  return (
-    scores.revenueFit * criteria.revenueFitWeight +
-    scores.geographicFit * criteria.geographicFitWeight +
-    scores.specialtyFit * criteria.specialtyFitWeight +
-    scores.cultureFit * criteria.cultureFitWeight +
-    scores.customerOverlap * criteria.customerOverlapWeight +
-    scores.vendorSynergy * criteria.vendorSynergyWeight +
-    scores.growthTrajectory * criteria.growthTrajectoryWeight +
-    scores.marginProfile * criteria.marginProfileWeight
-  );
-}
-
-function computeAllScores(criteria: AcquisitionCriteria): ScoredVar[] {
-  const scored = vars.map((v) => {
-    const scores = scoreVar(v);
-    const compositeScore = Math.round(computeComposite(scores, criteria) * 10) / 10;
-    return { var: v, scores, compositeScore, rank: 0, reasoning: "" };
-  });
-
-  scored.sort((a, b) => b.compositeScore - a.compositeScore);
-  scored.forEach((sv, i) => { sv.rank = i + 1; });
-
-  return scored;
+async function getAllVars(): Promise<UnifiedVar[]> {
+  if (db) {
+    try {
+      const rows = await db.select().from(varsTable)
+      return rows.map(mapDbRowToUnifiedVar)
+    } catch (e) {
+      console.error('DB query failed in M&A route:', e)
+    }
+  }
+  return []
 }
 
 // ============================================================================
@@ -238,88 +71,216 @@ function computeAllScores(criteria: AcquisitionCriteria): ScoredVar[] {
 // ============================================================================
 
 // GET /api/ma/rankings — return ranked VARs with scores
-router.get("/ma/rankings", (_req: Request, res: Response) => {
-  const scored = computeAllScores(currentCriteria);
-  res.json({
-    rankings: scored,
-    criteria: currentCriteria,
-    count: scored.length,
-  });
-});
+router.get('/ma/rankings', async (_req: Request, res: Response) => {
+  try {
+    const allVars = await getAllVars()
+    const scored = computeAllScores(allVars, currentCriteria)
+    res.json({
+      rankings: scored,
+      criteria: currentCriteria,
+      count: scored.length,
+    })
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to compute rankings' })
+  }
+})
 
 // GET /api/ma/criteria — return current acquisition criteria
-router.get("/ma/criteria", (_req: Request, res: Response) => {
-  res.json(currentCriteria);
-});
+router.get('/ma/criteria', (_req: Request, res: Response) => {
+  res.json(currentCriteria)
+})
 
 // PUT /api/ma/criteria — update criteria weights and recalculate
-router.put("/ma/criteria", (req: Request, res: Response) => {
-  const updates = req.body as Partial<AcquisitionCriteria>;
+router.put('/ma/criteria', async (req: Request, res: Response) => {
+  const updates = req.body as Partial<AcquisitionCriteria>
 
   const validKeys: (keyof AcquisitionCriteria)[] = [
-    "revenueFitWeight",
-    "geographicFitWeight",
-    "specialtyFitWeight",
-    "cultureFitWeight",
-    "customerOverlapWeight",
-    "vendorSynergyWeight",
-    "growthTrajectoryWeight",
-    "marginProfileWeight",
-  ];
+    'revenueFitWeight',
+    'geographicFitWeight',
+    'specialtyFitWeight',
+    'cultureFitWeight',
+    'customerOverlapWeight',
+    'vendorSynergyWeight',
+    'growthTrajectoryWeight',
+    'marginProfileWeight',
+  ]
 
   const invalidKeys = Object.keys(updates).filter(
-    (k) => !validKeys.includes(k as keyof AcquisitionCriteria),
-  );
+    (k) => !validKeys.includes(k as keyof AcquisitionCriteria)
+  )
 
   if (invalidKeys.length > 0) {
     res.status(400).json({
-      error: `Invalid criteria keys: ${invalidKeys.join(", ")}`,
+      error: `Invalid criteria keys: ${invalidKeys.join(', ')}`,
       validKeys,
-    });
-    return;
+    })
+    return
   }
 
-  currentCriteria = { ...currentCriteria, ...updates };
+  currentCriteria = { ...currentCriteria, ...updates }
 
-  const scored = computeAllScores(currentCriteria);
+  try {
+    const allVars = await getAllVars()
+    const scored = computeAllScores(allVars, currentCriteria)
+    res.json({
+      criteria: currentCriteria,
+      rankings: scored,
+      count: scored.length,
+    })
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to recalculate rankings' })
+  }
+})
 
-  res.json({
-    criteria: currentCriteria,
-    rankings: scored,
-    count: scored.length,
-  });
-});
+// GET /api/ma/rankings/:id/explanation — detailed score breakdown
+router.get('/ma/rankings/:id/explanation', async (req: Request<{ id: string }>, res: Response) => {
+  try {
+    const id = parseInt(req.params.id, 10)
+    const allVars = await getAllVars()
+    const scored = computeAllScores(allVars, currentCriteria)
+    const sv = scored.find((s) => s.var.id === id)
+
+    if (!sv) {
+      res.status(404).json({ error: `VAR with id ${id} not found in rankings` })
+      return
+    }
+
+    const explanation = generateScoreExplanation(sv, currentCriteria)
+    res.json(explanation)
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate explanation' })
+  }
+})
 
 // GET /api/ma/compare?ids=1,2,3 — return comparison data
-router.get("/ma/compare", (req: Request, res: Response) => {
-  const idsParam = req.query.ids as string;
+router.get('/ma/compare', async (req: Request, res: Response) => {
+  const idsParam = req.query.ids as string
 
   if (!idsParam) {
-    res.status(400).json({ error: "ids query parameter required (comma-separated)" });
-    return;
+    res.status(400).json({ error: 'ids query parameter required (comma-separated)' })
+    return
   }
 
-  const ids = idsParam.split(",").map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n));
+  const ids = idsParam
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !isNaN(n))
 
   if (ids.length < 2 || ids.length > 3) {
-    res.status(400).json({ error: "Provide 2 or 3 VAR IDs for comparison" });
-    return;
+    res.status(400).json({ error: 'Provide 2 or 3 VAR IDs for comparison' })
+    return
   }
 
-  const scored = computeAllScores(currentCriteria);
-  const selected = ids
-    .map((id) => scored.find((sv) => sv.var.id === id))
-    .filter(Boolean) as ScoredVar[];
+  try {
+    const allVars = await getAllVars()
+    const scored = computeAllScores(allVars, currentCriteria)
+    const selected = ids
+      .map((id) => scored.find((sv) => sv.var.id === id))
+      .filter(Boolean) as ScoredVar[]
 
-  if (selected.length !== ids.length) {
-    res.status(404).json({ error: "One or more VAR IDs not found" });
-    return;
+    if (selected.length !== ids.length) {
+      res.status(404).json({ error: 'One or more VAR IDs not found' })
+      return
+    }
+
+    res.json({
+      candidates: selected,
+      criteria: currentCriteria,
+    })
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to generate comparison' })
+  }
+})
+
+// POST /api/ma/scenarios — simulate acquisition
+router.post('/ma/scenarios', async (req: Request, res: Response) => {
+  const {
+    name,
+    targetVarIds,
+    ebitdaMultiple = 7,
+    synergyCrossSell = 0.05,
+    synergyMarginImprovement = 0.15,
+    integrationCostPercent = 0.03,
+  } = req.body
+
+  if (!targetVarIds || !Array.isArray(targetVarIds) || targetVarIds.length === 0) {
+    res.status(400).json({ error: 'targetVarIds array required' })
+    return
   }
 
-  res.json({
-    candidates: selected,
-    criteria: currentCriteria,
-  });
-});
+  try {
+    const allVars = await getAllVars()
+    const targets = targetVarIds
+      .map((id: number) => allVars.find((v) => v.id === id))
+      .filter(Boolean) as UnifiedVar[]
 
-export default router;
+    if (targets.length !== targetVarIds.length) {
+      res.status(404).json({ error: 'One or more target VAR IDs not found' })
+      return
+    }
+
+    // BlueAlly baseline
+    const blueAllyRevenue = 50
+    const blueAllyEbitda = 5
+
+    const combinedRevenue = blueAllyRevenue + targets.reduce((sum, t) => sum + t.annualRevenue, 0)
+    const targetEbitda = targets.reduce(
+      (sum, t) => sum + (t.annualRevenue * (t.ebitdaMargin ?? 10)) / 100,
+      0
+    )
+    const combinedEbitda = blueAllyEbitda + targetEbitda
+
+    const estimatedValuation = targetEbitda * ebitdaMultiple
+    const priceVariance = estimatedValuation * 0.2
+    const estimatedPriceRange = {
+      low: Math.round(estimatedValuation - priceVariance),
+      high: Math.round(estimatedValuation + priceVariance),
+    }
+
+    const crossSellRevenue = targets.reduce((sum, t) => sum + t.annualRevenue * synergyCrossSell, 0)
+    const marginGain = targets.reduce(
+      (sum, t) => sum + t.annualRevenue * synergyMarginImprovement,
+      0
+    )
+    const integrationCost = estimatedValuation * integrationCostPercent
+    const projectedRoi =
+      ((crossSellRevenue + marginGain - integrationCost) / estimatedValuation) * 100
+
+    const allSpecialties = targets.flatMap((t) => t.specialties ?? [])
+    const blueAllySpecialties = ['Cloud', 'AI/ML', 'Data Analytics', 'Managed Services']
+    const capabilityOverlaps = [
+      ...new Set(allSpecialties.filter((s) => blueAllySpecialties.includes(s))),
+    ]
+    const capabilityGains = [
+      ...new Set(allSpecialties.filter((s) => !blueAllySpecialties.includes(s))),
+    ]
+
+    const allVendors = targets.flatMap((t) => t.topVendors)
+    const blueAllyVendors = ['Microsoft', 'AWS', 'Dell', 'Cisco', 'Anthropic', 'ServiceNow']
+    const vendorOverlaps = [...new Set(allVendors.filter((v) => blueAllyVendors.includes(v)))]
+
+    const allStates = targets.map((t) => t.hqState)
+    const geographicOverlaps = allStates.includes('NC') ? ['NC'] : []
+
+    res.json({
+      name: name || `Scenario: ${targets.map((t) => t.name).join(' + ')}`,
+      targets,
+      combinedRevenue: Math.round(combinedRevenue),
+      combinedEbitda: Math.round(combinedEbitda),
+      estimatedValuation: Math.round(estimatedValuation),
+      estimatedPriceRange,
+      projectedRoi: Math.round(projectedRoi * 10) / 10,
+      crossSellRevenue: Math.round(crossSellRevenue),
+      marginGain: Math.round(marginGain),
+      integrationCost: Math.round(integrationCost),
+      capabilityOverlaps,
+      capabilityGains,
+      vendorOverlaps,
+      geographicOverlaps,
+    })
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to compute scenario' })
+  }
+})
+
+export default router

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   HiMagnifyingGlass,
   HiBuildingOffice2,
@@ -26,8 +26,11 @@ import {
   FilterPills,
   SearchBar,
 } from "../components/shared";
+import { useNavigate } from "react-router-dom";
 import { useVarStore } from "../stores/vars";
-import type { VarCompany } from "../stores/vars";
+import { useDiscoveryStore } from "../stores/discovery";
+import { DiscoveryPanel } from "../components/discovery/DiscoveryPanel";
+import type { UnifiedVar } from "@shared/types";
 
 // ============================================================================
 // Constants
@@ -105,7 +108,7 @@ function VarCard({
   company,
   onClick,
 }: {
-  company: VarCompany;
+  company: UnifiedVar;
   onClick: () => void;
 }) {
   return (
@@ -189,7 +192,7 @@ function VarDetailPanel({
   company,
   onClose,
 }: {
-  company: VarCompany;
+  company: UnifiedVar;
   onClose: () => void;
 }) {
   return (
@@ -369,13 +372,13 @@ function VarTable({
   sortDirection,
   onSort,
 }: {
-  vars: VarCompany[];
-  onSelect: (v: VarCompany) => void;
-  sortField: keyof VarCompany;
+  vars: UnifiedVar[];
+  onSelect: (v: UnifiedVar) => void;
+  sortField: keyof UnifiedVar;
   sortDirection: "asc" | "desc";
-  onSort: (field: keyof VarCompany) => void;
+  onSort: (field: keyof UnifiedVar) => void;
 }) {
-  const SortIcon = ({ field }: { field: keyof VarCompany }) => {
+  const SortIcon = ({ field }: { field: keyof UnifiedVar }) => {
     if (sortField !== field) {
       return <HiArrowsUpDown className="w-3.5 h-3.5 text-[var(--color-muted)]" />;
     }
@@ -509,6 +512,15 @@ export default function VarDirectory() {
     sortDirection,
     setSortField,
   } = useVarStore();
+  const fetchVars = useVarStore((s) => s.fetchVars);
+  const loading = useVarStore((s) => s.loading);
+
+  const openDiscovery = useDiscoveryStore((s) => s.openDiscovery);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    fetchVars();
+  }, [fetchVars]);
 
   const filteredVars = getFilteredVars();
   const stats = getStats();
@@ -533,6 +545,26 @@ export default function VarDirectory() {
           <p className="text-[var(--color-muted)] text-lg max-w-2xl mx-auto">
             Every Value Added Reseller in America. The data, organized.
           </p>
+          <div className="flex items-center justify-center gap-3 mt-2">
+            <button
+              onClick={openDiscovery}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-navy text-white text-sm font-medium
+                hover:bg-navy/90 transition-all"
+            >
+              <HiBeaker className="w-4 h-4" />
+              Discover New VARs
+            </button>
+            <a
+              href="/api/export/vars"
+              download
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-[var(--color-border)]
+                text-[var(--color-muted)] text-sm font-medium hover:text-[var(--color-foreground)]
+                hover:bg-[var(--color-subtle)] transition-all"
+            >
+              <HiArrowsUpDown className="w-4 h-4" />
+              Export CSV
+            </a>
+          </div>
         </div>
 
         {/* Search */}
@@ -642,7 +674,7 @@ export default function VarDirectory() {
             <VarCard
               key={v.id}
               company={v}
-              onClick={() => setSelectedVar(v)}
+              onClick={() => navigate(`/vars/${v.id}`)}
             />
           ))}
           {filteredVars.length === 0 && (
@@ -676,6 +708,8 @@ export default function VarDirectory() {
           onClose={() => setSelectedVar(null)}
         />
       )}
+
+      <DiscoveryPanel />
     </div>
   );
 }

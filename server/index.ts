@@ -18,9 +18,15 @@ app.use(express.urlencoded({ extended: true }));
 import portfolioRoutes from "./routes/portfolio.js";
 import varRoutes from "./routes/vars.js";
 import maRoutes from "./routes/ma.js";
+import chatRoutes from "./routes/chat.js";
+import discoveryRoutes from "./routes/discovery.js";
+import exportRoutes from "./routes/export.js";
 app.use("/api", portfolioRoutes);
 app.use("/api", varRoutes);
 app.use("/api", maRoutes);
+app.use("/api", chatRoutes);
+app.use("/api", discoveryRoutes);
+app.use("/api", exportRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

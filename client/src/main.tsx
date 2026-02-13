@@ -13,7 +13,10 @@ const ValueDrivers = lazy(() => import("./pages/portfolio/ValueDrivers"));
 const Dashboard = lazy(() => import("./pages/portfolio/Dashboard"));
 const ScenarioPlanner = lazy(() => import("./pages/portfolio/ScenarioPlanner"));
 const VarDirectory = lazy(() => import("./pages/VarDirectory"));
+const VarDossier = lazy(() => import("./pages/VarDossier"));
 const MaEngine = lazy(() => import("./pages/MaEngine"));
+const MaScenario = lazy(() => import("./pages/MaScenario"));
+const Insights = lazy(() => import("./pages/Insights"));
 
 // Loading fallback
 function PageLoader() {
@@ -82,8 +85,20 @@ const router = createBrowserRouter([
         element: <LazyPage><VarDirectory /></LazyPage>,
       },
       {
+        path: "vars/:id",
+        element: <LazyPage><VarDossier /></LazyPage>,
+      },
+      {
         path: "ma-engine",
         element: <LazyPage><MaEngine /></LazyPage>,
+      },
+      {
+        path: "ma-engine/scenario",
+        element: <LazyPage><MaScenario /></LazyPage>,
+      },
+      {
+        path: "insights",
+        element: <LazyPage><Insights /></LazyPage>,
       },
     ],
   },

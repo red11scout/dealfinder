@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   ScatterChart,
   Scatter,
@@ -192,6 +192,8 @@ export default function PortfolioAmplification() {
     getPlatformCount,
     getReplicationOpportunities,
   } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   // Local state
   const [sortField, setSortField] = useState<SortField>("rank");

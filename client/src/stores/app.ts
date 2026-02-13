@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type ActiveSection = "portfolio" | "vars" | "ma-engine";
+export type ActiveSection = "portfolio" | "vars" | "ma-engine" | "insights";
 
 interface AppState {
   activeSection: ActiveSection;

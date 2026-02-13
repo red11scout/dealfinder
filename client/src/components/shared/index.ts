@@ -6,3 +6,4 @@ export { Tooltip } from "./Tooltip";
 export { Badge } from "./Badge";
 export { Button } from "./Button";
 export { LoadingSpinner } from "./LoadingSpinner";
+export { Pagination } from "./Pagination";

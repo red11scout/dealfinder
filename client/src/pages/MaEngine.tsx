@@ -1,4 +1,5 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   RadarChart,
   Radar,
@@ -20,11 +21,61 @@ import {
 } from "react-icons/hi2";
 
 import { Card, MetricCard, Badge, Button } from "../components/shared";
-import {
-  useMaStore,
-  type AcquisitionCriteria,
-  type ScoredVar,
-} from "../stores/ma";
+import { useMaStore } from "../stores/ma";
+import { ScoreBreakdown } from "../components/ma/ScoreBreakdown";
+import type { AcquisitionCriteria, ScoredVar } from "@shared/types";
+
+// ============================================================================
+// Preset Scenarios
+// ============================================================================
+
+const PRESETS: { label: string; description: string; weights: AcquisitionCriteria }[] = [
+  {
+    label: "Balanced",
+    description: "Equal weight across all dimensions",
+    weights: {
+      revenueFitWeight: 0.125, geographicFitWeight: 0.125, specialtyFitWeight: 0.125,
+      cultureFitWeight: 0.125, customerOverlapWeight: 0.125, vendorSynergyWeight: 0.125,
+      growthTrajectoryWeight: 0.125, marginProfileWeight: 0.125,
+    },
+  },
+  {
+    label: "Revenue Boost",
+    description: "Maximize near-term revenue impact",
+    weights: {
+      revenueFitWeight: 0.30, geographicFitWeight: 0.05, specialtyFitWeight: 0.10,
+      cultureFitWeight: 0.05, customerOverlapWeight: 0.15, vendorSynergyWeight: 0.10,
+      growthTrajectoryWeight: 0.15, marginProfileWeight: 0.10,
+    },
+  },
+  {
+    label: "Strategic Synergy",
+    description: "Capability and vendor alignment first",
+    weights: {
+      revenueFitWeight: 0.10, geographicFitWeight: 0.05, specialtyFitWeight: 0.30,
+      cultureFitWeight: 0.10, customerOverlapWeight: 0.10, vendorSynergyWeight: 0.25,
+      growthTrajectoryWeight: 0.05, marginProfileWeight: 0.05,
+    },
+  },
+  {
+    label: "Geographic Expansion",
+    description: "Prioritize new market presence",
+    weights: {
+      revenueFitWeight: 0.10, geographicFitWeight: 0.30, specialtyFitWeight: 0.10,
+      cultureFitWeight: 0.10, customerOverlapWeight: 0.15, vendorSynergyWeight: 0.05,
+      growthTrajectoryWeight: 0.10, marginProfileWeight: 0.10,
+    },
+  },
+  {
+    label: "Tuck-in",
+    description: "Small, easy-to-integrate targets",
+    weights: {
+      revenueFitWeight: 0.10, geographicFitWeight: 0.15, specialtyFitWeight: 0.15,
+      cultureFitWeight: 0.20, customerOverlapWeight: 0.10, vendorSynergyWeight: 0.10,
+      growthTrajectoryWeight: 0.05, marginProfileWeight: 0.15,
+    },
+  },
+];
 
 // ============================================================================
 // Constants
@@ -195,10 +246,27 @@ export default function MaEngine() {
     toggleComparison,
     clearComparison,
   } = useMaStore();
+  const fetchRankings = useMaStore((s) => s.fetchRankings);
+  const loading = useMaStore((s) => s.loading);
+  const navTo = useNavigate();
+
+  useEffect(() => {
+    fetchRankings();
+  }, [fetchRankings]);
 
   const [sortColumn, setSortColumn] = useState<string>("compositeScore");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [profileExpanded, setProfileExpanded] = useState(false);
+  const [breakdownVar, setBreakdownVar] = useState<ScoredVar | null>(null);
+
+  const applyPreset = useCallback(
+    (preset: typeof PRESETS[number]) => {
+      const keys = Object.keys(preset.weights) as (keyof AcquisitionCriteria)[];
+      keys.forEach((k) => updateCriteriaWeight(k, preset.weights[k]));
+      recalculateScores();
+    },
+    [updateCriteriaWeight, recalculateScores],
+  );
 
   // Weight sum validation
   const weightSum = useMemo(() => {
@@ -223,8 +291,8 @@ export default function MaEngine() {
           bVal = b.rank;
           break;
         case "revenue":
-          aVal = a.var.revenue;
-          bVal = b.var.revenue;
+          aVal = a.var.annualRevenue;
+          bVal = b.var.annualRevenue;
           break;
         case "compositeScore":
           aVal = a.compositeScore;
@@ -300,13 +368,23 @@ export default function MaEngine() {
       {/* ================================================================ */}
       {/* Section 1: Header */}
       {/* ================================================================ */}
-      <section className="space-y-2">
-        <h1 className="text-3xl font-bold text-[var(--color-navy)]">
-          M&A Intelligence Engine
-        </h1>
-        <p className="text-[var(--color-muted)] text-lg max-w-2xl">
-          Find the right acquisition. Score it. Rank it. Know why.
-        </p>
+      <section className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold text-[var(--color-navy)]">
+            M&A Intelligence Engine
+          </h1>
+          <p className="text-[var(--color-muted)] text-lg max-w-2xl">
+            Find the right acquisition. Score it. Rank it. Know why.
+          </p>
+        </div>
+        <Button
+          variant="primary"
+          size="md"
+          onClick={() => navTo("/ma-engine/scenario")}
+          icon={<HiScale className="w-4 h-4" />}
+        >
+          Simulate Acquisition
+        </Button>
       </section>
 
       {/* ================================================================ */}
@@ -400,7 +478,29 @@ export default function MaEngine() {
 
           {/* Expanded sliders */}
           {profileExpanded && (
-            <div className="mt-6 space-y-3">
+            <div className="mt-6 space-y-4">
+              {/* Preset buttons */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-[var(--color-muted)] uppercase tracking-wider">
+                  Preset Scenarios
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {PRESETS.map((p) => (
+                    <button
+                      key={p.label}
+                      onClick={() => applyPreset(p)}
+                      title={p.description}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium border border-[var(--color-border)]
+                        text-[var(--color-muted)] hover:text-[var(--color-foreground)]
+                        hover:border-navy/30 hover:bg-navy/5 dark:hover:bg-navy/10 transition-all"
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sliders */}
               {(
                 Object.keys(acquisitionCriteria) as (keyof AcquisitionCriteria)[]
               ).map((key) => (
@@ -454,28 +554,32 @@ export default function MaEngine() {
                         {sv.var.name}
                       </h3>
                       <p className="text-xs text-[var(--color-muted)]">
-                        {sv.var.hq}
+                        {sv.var.hqCity}, {sv.var.hqState}
                       </p>
                     </div>
-                    <div className={`text-2xl font-bold ${scoreColor(sv.compositeScore)}`}>
+                    <button
+                      onClick={() => setBreakdownVar(sv)}
+                      title="Click for score breakdown"
+                      className={`text-2xl font-bold cursor-pointer hover:underline ${scoreColor(sv.compositeScore)}`}
+                    >
                       {sv.compositeScore.toFixed(1)}
-                    </div>
+                    </button>
                   </div>
 
                   <div className="flex flex-wrap gap-2 mt-2">
                     <Badge
-                      label={formatRevenue(sv.var.revenue)}
+                      label={formatRevenue(sv.var.annualRevenue)}
                       variant="navy"
                       size="sm"
                     />
                     <Badge
-                      label={`${sv.var.employees.toLocaleString()} emp`}
+                      label={`${sv.var.employeeCount.toLocaleString()} emp`}
                       variant="gray"
                       size="sm"
                     />
                     <Badge
-                      label={sv.var.ownership}
-                      variant={sv.var.ownership === "PE-Backed" ? "blue" : "gray"}
+                      label={sv.var.ownershipType}
+                      variant={sv.var.ownershipType === "PE-Backed" ? "blue" : "gray"}
                       size="sm"
                     />
                   </div>
@@ -682,28 +786,36 @@ export default function MaEngine() {
                     <td className="py-2.5 px-2 text-center font-semibold text-[var(--color-navy)]">
                       #{sv.rank}
                     </td>
-                    <td className="py-2.5 px-2 font-medium text-[var(--color-foreground)] whitespace-nowrap">
-                      {sv.var.name}
+                    <td className="py-2.5 px-2 font-medium whitespace-nowrap">
+                      <button
+                        onClick={() => navTo(`/vars/${sv.var.id}`)}
+                        className="text-[var(--color-navy)] hover:underline cursor-pointer"
+                      >
+                        {sv.var.name}
+                      </button>
                     </td>
                     <td className="py-2.5 px-2 text-right text-[var(--color-foreground)]">
-                      {formatRevenue(sv.var.revenue)}
+                      {formatRevenue(sv.var.annualRevenue)}
                     </td>
                     <td className="py-2.5 px-2 text-[var(--color-muted)] whitespace-nowrap">
-                      {sv.var.hq}
+                      {sv.var.hqCity}, {sv.var.hqState}
                     </td>
                     <td className="py-2.5 px-2">
                       <Badge
-                        label={sv.var.ownership}
-                        variant={sv.var.ownership === "PE-Backed" ? "blue" : "gray"}
+                        label={sv.var.ownershipType}
+                        variant={sv.var.ownershipType === "PE-Backed" ? "blue" : "gray"}
                         size="sm"
                       />
                     </td>
                     <td className="py-2.5 px-2 text-center">
-                      <span
-                        className={`inline-flex items-center justify-center w-10 h-7 rounded-md text-sm font-bold ${scoreColor(sv.compositeScore)} ${scoreBg(sv.compositeScore)}`}
+                      <button
+                        onClick={() => setBreakdownVar(sv)}
+                        title="Click for score breakdown"
+                        className={`inline-flex items-center justify-center w-10 h-7 rounded-md text-sm font-bold cursor-pointer
+                          hover:ring-2 hover:ring-navy/30 transition-all ${scoreColor(sv.compositeScore)} ${scoreBg(sv.compositeScore)}`}
                       >
                         {sv.compositeScore.toFixed(1)}
-                      </span>
+                      </button>
                     </td>
                     <td className="py-2.5 px-2 text-center text-[var(--color-foreground)]">
                       {sv.scores.revenueFit}
@@ -728,6 +840,11 @@ export default function MaEngine() {
       {/* ================================================================ */}
       {/* Section 6: #1 Acquisition Rationale */}
       {/* ================================================================ */}
+      {/* Score Breakdown Modal */}
+      {breakdownVar && (
+        <ScoreBreakdown scoredVar={breakdownVar} onClose={() => setBreakdownVar(null)} />
+      )}
+
       {numberOne && (
         <section>
           <h2 className="text-xl font-bold text-[var(--color-foreground)] mb-4">
@@ -843,16 +960,16 @@ export default function MaEngine() {
                   </h3>
                   <p className="text-sm text-[var(--color-foreground)] leading-relaxed">
                     {numberOne.var.name} brings{" "}
-                    {numberOne.var.specialties.slice(0, 3).join(", ")} capabilities
-                    with {formatRevenue(numberOne.var.revenue)} revenue and{" "}
-                    {numberOne.var.employees.toLocaleString()} employees.{" "}
-                    {numberOne.var.ownership === "PE-Backed"
+                    {(numberOne.var.specialties ?? []).slice(0, 3).join(", ")} capabilities
+                    with {formatRevenue(numberOne.var.annualRevenue)} revenue and{" "}
+                    {numberOne.var.employeeCount.toLocaleString()} employees.{" "}
+                    {numberOne.var.ownershipType === "PE-Backed"
                       ? "PE ownership means a structured deal process."
-                      : numberOne.var.ownership === "Private"
+                      : numberOne.var.ownershipType === "Private"
                         ? "Private ownership could mean a cleaner negotiation."
                         : "Ownership structure will shape the approach."}{" "}
                     Vendor alignment with{" "}
-                    {numberOne.var.primaryVendors.slice(0, 3).join(", ")} creates
+                    {numberOne.var.topVendors.slice(0, 3).join(", ")} creates
                     immediate cross-sell opportunity.
                   </p>
                 </div>
@@ -865,15 +982,15 @@ export default function MaEngine() {
                     Revenue synergy potential:{" "}
                     <span className="font-bold">
                       {formatRevenue(
-                        Math.round(numberOne.var.revenue * 0.05),
+                        Math.round(numberOne.var.annualRevenue * 0.05),
                       )}
                     </span>{" "}
                     (5% cross-sell uplift). Cost synergy:{" "}
                     <span className="font-bold">
                       {formatRevenue(
                         Math.round(
-                          numberOne.var.revenue *
-                            (numberOne.var.ebitdaMargin / 100) *
+                          numberOne.var.annualRevenue *
+                            ((numberOne.var.ebitdaMargin ?? 10) / 100) *
                             0.15,
                         ),
                       )}

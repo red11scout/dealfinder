@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   HiArrowRight,
   HiArrowsUpDown,
@@ -716,6 +716,12 @@ export default function Dashboard() {
     clearFilters,
     getFilteredCompanies,
   } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  const loading = usePortfolioStore((s) => s.loading);
+
+  useEffect(() => {
+    fetchCompanies();
+  }, [fetchCompanies]);
 
   const filteredCompanies = getFilteredCompanies();
 

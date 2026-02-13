@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { usePortfolioStore } from "../../stores/portfolio";
 import { Card, Badge, Button, SearchBar } from "../../components/shared";
 import {
@@ -195,6 +195,8 @@ function DeltaValue({
 
 export default function ScenarioPlanner() {
   const { companies, getTopCompanies } = usePortfolioStore();
+  const fetchCompanies = usePortfolioStore((s) => s.fetchCompanies);
+  useEffect(() => { fetchCompanies(); }, [fetchCompanies]);
 
   // Company selection
   const [searchQuery, setSearchQuery] = useState("");

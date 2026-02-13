@@ -340,6 +340,140 @@ export interface TableConfig {
   title: string
 }
 
+// ============================================================================
+// Unified VAR Type — Single source of truth for all VAR data
+// Merges Directory VarCompany + M&A VarCompany into one interface
+// ============================================================================
+
+export interface UnifiedVar {
+  id: number
+  name: string
+  website: string | null
+  hqCity: string
+  hqState: string
+  annualRevenue: number
+  profit: number | null
+  employeeCount: number
+  ownershipType: string
+  strategicSpecialty: string
+  strategicFocus: string | null
+  topVendors: string[]
+  topCustomers: string[]
+  yearFounded: number
+  description: string
+  confidenceScore: number
+  dataSources: string[] | null
+  // M&A-specific fields
+  growthRate: number | null
+  ebitdaMargin: number | null
+  customerSegment: string | null
+  specialties: string[] | null
+  // Enhanced fields
+  branchLocations: { city: string; state: string }[] | null
+  certifications: string[] | null
+  servicesMix: Record<string, number> | null
+  glassdoorRating: number | null
+  latitude: number | null
+  longitude: number | null
+  discoveredBy: string
+  lastResearchedAt: string | null
+}
+
+// M&A Scoring Types (shared between client and server)
+export interface AcquisitionCriteria {
+  revenueFitWeight: number
+  geographicFitWeight: number
+  specialtyFitWeight: number
+  cultureFitWeight: number
+  customerOverlapWeight: number
+  vendorSynergyWeight: number
+  growthTrajectoryWeight: number
+  marginProfileWeight: number
+}
+
+export interface VarScores {
+  revenueFit: number
+  geographicFit: number
+  specialtyFit: number
+  cultureFit: number
+  customerOverlap: number
+  vendorSynergy: number
+  growthTrajectory: number
+  marginProfile: number
+}
+
+export interface ScoredVar {
+  var: UnifiedVar
+  scores: VarScores
+  compositeScore: number
+  rank: number
+  reasoning: string
+}
+
+export interface ScoreExplanation {
+  summary: string
+  breakdown: {
+    dimension: string
+    score: number
+    weight: number
+    contribution: number
+    reasoning: string
+  }[]
+  strengths: string[]
+  concerns: string[]
+  dataSources: string[]
+}
+
+// M&A Scenario Types
+export interface MaScenarioInput {
+  name: string
+  targetVarIds: number[]
+  ebitdaMultiple: number
+  synergyCrossSell: number
+  synergyMarginImprovement: number
+  integrationCostPercent: number
+}
+
+export interface MaScenarioResult {
+  id: number
+  name: string
+  targets: UnifiedVar[]
+  combinedRevenue: number
+  combinedEbitda: number
+  estimatedValuation: number
+  estimatedPriceRange: { low: number; high: number }
+  projectedRoi: number
+  capabilityOverlaps: string[]
+  capabilityGains: string[]
+  vendorOverlaps: string[]
+  geographicOverlaps: string[]
+}
+
+// Discovery Types
+export interface DiscoveryJobResult {
+  id: number
+  query: string
+  status: 'pending' | 'running' | 'completed' | 'failed'
+  results: UnifiedVar[] | null
+  varsDiscovered: number
+  createdAt: string
+  completedAt: string | null
+}
+
+// VAR News Types
+export interface VarNewsItem {
+  id: number
+  varId: number
+  headline: string
+  source: string | null
+  url: string | null
+  publishedAt: string | null
+  sentiment: 'positive' | 'negative' | 'neutral'
+  isHighlight: boolean
+  isRedFlag: boolean
+  aiSummary: string | null
+}
+
 // Report Export
 export interface ReportConfig {
   title: string
