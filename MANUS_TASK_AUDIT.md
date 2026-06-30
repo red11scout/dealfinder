@@ -1,10 +1,20 @@
-# Manus Task Audit
+# Manus Task Provenance & Audit
 
-This repository was reviewed during the Manus task-to-GitHub audit on **2026-05-18**. 
-The table below records Manus tasks mapped to this repository so the repo has current task provenance without changing application code.
+> This repository is part of the **Manus Task Archive** catalog. This file documents the
+> originating Manus task(s), the deliverable, and audit metadata. It is maintained as part
+> of an account-wide task review and GitHub synchronization.
 
-| Manus Project | Task Title | Task Updated (UTC) | Manus Task | Audit Rationale |
-|---|---|---:|---|---|
-| App Design and Features for VAR Acquisition Evaluation | App Design and Features for VAR Acquisition Evaluation | 2026-02-23 17:58:08 UTC | [Open task](https://manus.im/app/eFjiI8osSXyvBmHC5IUfHF) | Explicit GitHub link in Manus messages. |
+## Originating Manus task(s)
+- **App Design and Features for VAR Acquisition Evaluation** — App design and feature set for evaluating IT VAR acquisition targets (deal-finder).
 
-This file is intentionally limited to task provenance and audit traceability.
+## Deliverable type
+Web application / website
+
+## Live deployment
+_Not publicly deployed; runs locally or within Manus._
+
+## Audit metadata
+- Audit date: 2026-06-30
+- Owner: red11scout
+- Catalog: Manus Task Archive (master index maintained in Google Drive)
+- Status: Repository verified present and synchronized as of the audit date.
